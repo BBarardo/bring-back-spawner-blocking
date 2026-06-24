@@ -67,19 +67,20 @@ local function block_spawner(player, force, spawner, undo_index)
         pos.y > bbox.left_top.y and pos.y < bbox.right_bottom.y
 
       if not inside_spawner then
-        -- blueprint_ghost is the same check the game uses when force-pasting
-        -- a blueprint: it says yes as long as the terrain itself allows it,
-        -- even if a real entity is currently sitting on that tile.
-        local can_ghost = surface.can_place_entity({
-          name = BLOCKER_ENTITY,
-          position = pos,
-          force = force,
-          build_check_type = defines.build_check_type.blueprint_ghost
-        })
+        -- create_entity does not check entity collision for ghosts by
+        -- default - it'll happily place one on top of whatever's there.
+        -- can_place_entity (no special build_check_type) is only used here
+        -- to tell "blocked by a real entity" apart from "blocked by terrain
+        -- the entity could never go on anyway" (water, out of the map...).
+        local free = surface.can_place_entity({name = BLOCKER_ENTITY, position = pos, force = force})
+        local should_place = free
 
-        if can_ghost then
+        if not free then
           force_clear(force, player, surface, pos)
+          should_place = true
+        end
 
+        if should_place then
           local result = surface.create_entity({
             name = "entity-ghost",
             inner_name = BLOCKER_ENTITY,
