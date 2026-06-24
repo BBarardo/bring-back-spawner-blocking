@@ -5,7 +5,8 @@
 -- Normal select / alt select: place blocker ghosts.
 -- Reverse select (shift+drag): remove blocker ghosts placed by this tool,
 -- since the engine's own undo (ctrl+z) does not track scripted ghost
--- placement.
+-- placement - Mining Patch Planner has this exact limitation too, which is
+-- why it ships its own undo button instead of using ctrl+z.
 
 data:extend({
   {
@@ -60,5 +61,21 @@ data:extend({
     consuming = "game-only",
     item_to_spawn = "spawner-blocker-planner",
     action = "spawn-item"
+  },
+  {
+    -- Bottom-left shortcut bar button, same spot Mining Patch Planner puts
+    -- its own button. Reuses the base game's pipe icon since we don't have
+    -- custom artwork - same trick the item icon above already uses.
+    type = "shortcut",
+    name = "spawner-blocker-planner-shortcut",
+    icon = "__base__/graphics/icons/pipe.png",
+    icon_size = 64,
+    small_icon = "__base__/graphics/icons/pipe.png",
+    small_icon_size = 64,
+    order = "b[blueprints]-z[spawner-blocker-planner]",
+    action = "spawn-item",
+    item_to_spawn = "spawner-blocker-planner",
+    style = "blue",
+    associated_control_input = "give-spawner-blocker-planner"
   }
 })

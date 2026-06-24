@@ -1,9 +1,9 @@
 {
   "name": "bring-back-spawner-blocking",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "title": "Bring Back Spawner Blocking",
   "author": "BeraIV",
   "factorio_version": "2.1",
   "dependencies": ["base >= 2.1.0"],
-  "description": "Reverts the 2.1 spawner changes that broke walling off nests, and adds a Mining-Patch-Planner-style selection tool (ALT+S): drag it over spawners to drop a sparse grid of pipe ghosts (period = spawning_spacing) out to spawning_radius. Shift-drag removes pipe ghosts this tool placed."
+  "description": "Reverts the 2.1 spawner changes that broke walling off nests, and adds a Mining-Patch-Planner-style selection tool, with a shortcut bar button and ALT+S keybind: drag it over spawners to drop a sparse grid of pipe ghosts (period = spawning_spacing) out to spawning_radius. Shift-drag removes pipe ghosts this tool placed."
 }
