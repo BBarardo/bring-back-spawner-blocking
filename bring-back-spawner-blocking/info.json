@@ -1,9 +1,9 @@
 {
   "name": "bring-back-spawner-blocking",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "Bring Back Spawner Blocking",
   "author": "BeraIV",
   "factorio_version": "2.1",
   "dependencies": ["base >= 2.1.0"],
-  "description": "Removes the acid cloud that 2.1 added when a biter/spitter spawner can't find a place to spawn a unit."
+  "description": "Reverts the 2.1 spawner changes that broke walling off nests: removes the acid cloud emitted when a spawner is blocked, and restores the pre-2.1 spawning_radius (10) and spawning_spacing (3), so biters can no longer squeeze through old wall-off patterns."
 }
