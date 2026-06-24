@@ -37,17 +37,32 @@ local function set_force_build(player_index, value)
   storage.force_build[player_index] = value
 end
 
---- Clears whatever is currently occupying `pos` (if anything), the same way
--- a forced blueprint paste would, so a pipe ghost can still go down there.
+--- Marks whatever real entity is occupying `pos` for deconstruction, the
+-- same way a forced blueprint paste would, so a pipe ghost can still go
+-- down there.
+--
+-- Deliberately does NOT count terrain-only obstructions (water, cliffs,
+-- space) as something to "clear" - there's no entity to deconstruct in
+-- those cases, and forcing a pipe ghost onto e.g. deep water would just
+-- leave a ghost that can never actually be built without landfill. Force
+-- build is meant for clearing trees, rocks, and existing buildings out of
+-- the way, not for terraforming.
+-- @return true if a real, removable obstruction was found and marked
 local function force_clear(force, player, surface, pos)
+  local cleared_something = false
   local blockers = surface.find_entities_filtered({position = pos, radius = 0.4})
   for _, e in pairs(blockers) do
     if e.valid and e.type ~= "entity-ghost" and e.type ~= "unit-spawner"
-       and e.type ~= "resource" and e.type ~= "character"
-       and (not e.to_be_deconstructed or not e.to_be_deconstructed()) then
-      pcall(function() e.order_deconstruction(force, player) end)
+       and e.type ~= "resource" and e.type ~= "character" and e.type ~= "cliff" then
+      if not (e.to_be_deconstructed and e.to_be_deconstructed()) then
+        pcall(function() e.order_deconstruction(force, player) end)
+      end
+      if e.to_be_deconstructed and e.to_be_deconstructed() then
+        cleared_something = true
+      end
     end
   end
+  return cleared_something
 end
 
 --- Surrounds a single spawner with a sparse grid of pipe ghosts, spaced
@@ -89,8 +104,12 @@ local function block_spawner(player, force, spawner, undo_index, force_build)
         local should_place = free
 
         if not free and force_build then
-          force_clear(force, player, surface, pos)
-          should_place = true
+          -- Only force the ghost down if there was an actual entity to
+          -- clear out of the way - skip tiles that are blocked by terrain
+          -- alone (water, cliffs), same as if force build were off.
+          if force_clear(force, player, surface, pos) then
+            should_place = true
+          end
         end
 
         if should_place then

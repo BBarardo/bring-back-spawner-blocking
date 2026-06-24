@@ -1,9 +1,9 @@
 {
   "name": "bring-back-spawner-blocking",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "title": "Bring Back Spawner Blocking",
   "author": "BeraIV",
   "factorio_version": "2.1",
   "dependencies": ["base >= 2.1.0"],
-  "description": "Reverts the 2.1 spawner changes that broke walling off nests, and adds a Mining-Patch-Planner-style selection tool, with a shortcut bar button and ALT+S keybind: drag it over spawners to drop a sparse grid of pipe ghosts out to spawning_radius. While the tool is selected, a small panel on the left has a Force build toggle (on by default, same name as the vanilla build mode): when on, anything in the way of a pipe ghost gets marked for deconstruction and the ghost is placed anyway. Placements are tied to your undo queue (ctrl+z undoes a whole drag at once)."
+  "description": "Reverts the 2.1 spawner changes that broke walling off nests: removes the acid cloud, sets spawning_radius to 4 and spawning_spacing to 3. Adds a Mining-Patch-Planner-style selection tool, with a shortcut bar button and ALT+S keybind: drag it over spawners to drop a sparse grid of pipe ghosts (period = spawning_spacing) out to spawning_radius. While the tool is selected, a small panel on the left has a Force build toggle (on by default, same name as the vanilla build mode): when on, anything in the way of a pipe ghost gets marked for deconstruction and the ghost is placed anyway, like a forced blueprint paste - terrain-only obstructions like water or cliffs are left alone instead of getting an unbuildable ghost. Placements are tied to your undo queue (ctrl+z undoes a whole drag at once), and shift-drag (reverse select) also removes pipe ghosts placed by this tool."
 }
