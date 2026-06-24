@@ -1,0 +1,9 @@
+{
+  "name": "bring-back-spawner-blocking",
+  "version": "0.1.0",
+  "title": "Bring Back Spawner Blocking",
+  "author": "BeraIV",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.1.0"],
+  "description": "Removes the acid cloud that 2.1 added when a biter/spitter spawner can't find a place to spawn a unit."
+}
