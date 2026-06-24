@@ -7,11 +7,11 @@
 -- density as the classic manual "sim, nao, nao" wall-off pattern, not a
 -- solid fill of every tile.
 --
--- Placement is force-pasted like a blueprint: if something is already
--- sitting on a spot we want to put a pipe ghost on, we mark it for
--- deconstruction (the same as the vanilla "X" you'd get from a forced
--- blueprint paste) and place the ghost anyway, instead of silently skipping
--- that tile.
+-- Force build (toggle in the left-side panel shown while the tool is
+-- selected, on by default - same name as vanilla's own build mode): if
+-- something is already sitting where a pipe ghost wants to go, mark it for
+-- deconstruction and place the ghost anyway, the same way a forced
+-- blueprint paste works.
 --
 -- Ghosts are created with `player` and `undo_index` set on
 -- surface.create_entity, which is what actually files them into the
@@ -23,6 +23,19 @@
 
 local TOOL_NAME = "spawner-blocker-planner"
 local BLOCKER_ENTITY = "pipe"
+local GUI_FRAME_NAME = "spawner-blocker-gui"
+local CHECKBOX_NAME = "spawner-blocker-force-build-checkbox"
+
+local function get_force_build(player_index)
+  local value = storage.force_build and storage.force_build[player_index]
+  if value == nil then return true end
+  return value
+end
+
+local function set_force_build(player_index, value)
+  storage.force_build = storage.force_build or {}
+  storage.force_build[player_index] = value
+end
 
 --- Clears whatever is currently occupying `pos` (if anything), the same way
 -- a forced blueprint paste would, so a pipe ghost can still go down there.
@@ -41,7 +54,7 @@ end
 -- spawning_spacing tiles apart, out to spawning_radius. Force-pastes over
 -- anything in the way and threads everything into one undo action.
 -- @return number of ghosts placed, updated undo_index
-local function block_spawner(player, force, spawner, undo_index)
+local function block_spawner(player, force, spawner, undo_index, force_build)
   if not (spawner and spawner.valid) then return 0, undo_index end
 
   local surface = spawner.surface
@@ -75,7 +88,7 @@ local function block_spawner(player, force, spawner, undo_index)
         local free = surface.can_place_entity({name = BLOCKER_ENTITY, position = pos, force = force})
         local should_place = free
 
-        if not free then
+        if not free and force_build then
           force_clear(force, player, surface, pos)
           should_place = true
         end
@@ -113,6 +126,8 @@ local function on_area_selected(event)
   local player = game.get_player(event.player_index)
   if not player then return end
 
+  local force_build = get_force_build(player.index)
+
   local spawners_done = 0
   local ghosts_placed = 0
   local undo_index = 0
@@ -120,7 +135,7 @@ local function on_area_selected(event)
   for _, entity in pairs(event.entities or {}) do
     if entity.valid and entity.type == "unit-spawner" then
       local placed
-      placed, undo_index = block_spawner(player, player.force, entity, undo_index)
+      placed, undo_index = block_spawner(player, player.force, entity, undo_index, force_build)
       ghosts_placed = ghosts_placed + placed
       spawners_done = spawners_done + 1
     end
@@ -156,6 +171,53 @@ local function on_area_reverse_selected(event)
   end
 end
 
+-- Left-side settings panel, shown while the spawner-blocker-planner tool is
+-- in the player's cursor, same spot Mining Patch Planner puts its own panel.
+local function destroy_gui(player)
+  local existing = player.gui.left[GUI_FRAME_NAME]
+  if existing then existing.destroy() end
+end
+
+local function build_gui(player)
+  if player.gui.left[GUI_FRAME_NAME] then return end
+
+  local frame = player.gui.left.add({
+    type = "frame",
+    name = GUI_FRAME_NAME,
+    direction = "vertical",
+    caption = "Spawner Blocker"
+  })
+
+  frame.add({
+    type = "checkbox",
+    name = CHECKBOX_NAME,
+    caption = "Force build",
+    tooltip = "Mark anything in the way for deconstruction and place the pipe ghost anyway, like a forced blueprint paste.",
+    state = get_force_build(player.index)
+  })
+end
+
+local function on_cursor_stack_changed(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+
+  local stack = player.cursor_stack
+  if stack and stack.valid_for_read and stack.name == TOOL_NAME then
+    build_gui(player)
+  else
+    destroy_gui(player)
+  end
+end
+
+local function on_gui_checked_state_changed(event)
+  local element = event.element
+  if element and element.valid and element.name == CHECKBOX_NAME then
+    set_force_build(event.player_index, element.state)
+  end
+end
+
 script.on_event(defines.events.on_player_selected_area, on_area_selected)
 script.on_event(defines.events.on_player_alt_selected_area, on_area_selected)
 script.on_event(defines.events.on_player_reverse_selected_area, on_area_reverse_selected)
+script.on_event(defines.events.on_player_cursor_stack_changed, on_cursor_stack_changed)
+script.on_event(defines.events.on_gui_checked_state_changed, on_gui_checked_state_changed)
