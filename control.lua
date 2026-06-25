@@ -464,23 +464,26 @@ local function on_game_ready()
       refresh_spawner_lock(data)
       if data.managed and data.gaps and #data.gaps == 0 then
         -- Kill every unit this spawner owns, wherever it has roamed.
-        -- spawner.units tracks ownership regardless of position, so we
-        -- catch biters that have already walked away from the spawner area.
+        -- spawner.units tracks ownership regardless of position.
         for _, unit in pairs(spawner.units or {}) do
           if unit.valid then unit.destroy() end
         end
-        -- Worms (turrets) are not tracked in spawner.units; search by
-        -- radius instead. Split from units to avoid any API issues with
-        -- passing an array to the type field.
-        local bbox = spawner.bounding_box
-        local half = math.max(
-          (bbox.right_bottom.x - bbox.left_top.x) / 2,
-          (bbox.right_bottom.y - bbox.left_top.y) / 2
-        )
-        local radius = half + (spawner.prototype.spawning_radius or 2) + 2
-        for _, e in pairs(spawner.surface.find_entities_filtered({
-            position = spawner.position, radius = radius,
-            force = spawner.force, type = "turret"})) do
+        -- Also kill by radius: units that left spawner ownership (joined
+        -- attack groups, etc.) no longer appear in spawner.units. 50 tiles
+        -- covers typical biter patrol range. Worms (turrets on enemy force)
+        -- are never in spawner.units so this is the only way to catch them.
+        -- Two separate calls: Factorio's type filter is safest as a string.
+        local pos = spawner.position
+        local surf = spawner.surface
+        local force = spawner.force
+        for _, e in pairs(surf.find_entities_filtered({
+            position = pos, radius = 50,
+            force = force, type = "unit"})) do
+          if e.valid then e.destroy() end
+        end
+        for _, e in pairs(surf.find_entities_filtered({
+            position = pos, radius = 50,
+            force = force, type = "turret"})) do
           if e.valid then e.destroy() end
         end
       end
