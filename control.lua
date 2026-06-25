@@ -439,14 +439,57 @@ script.on_event(defines.events.on_entity_spawned, on_entity_spawned)
 
 script.on_nth_tick(SWEEP_INTERVAL, sweep_tracked_spawners)
 
--- On save load the periodic sweep hasn't run yet, so tracked spawners
--- still have stale gap/managed state from before the save. Register a
--- one-shot on_tick that refreshes everything on the very first tick after
--- load, then removes itself.
+-- Full recompute + state refresh + unit cleanup for every tracked spawner.
+-- Recomputing positions from the current prototype fixes saves made with
+-- older mod versions that stored wrong (inside-bbox) positions, which left
+-- managed=false and the lockdown permanently disabled.
+-- Destroying nearby enemy units and worms removes any that were alive in
+-- the save around a now-fully-locked spawner - they were never intercepted
+-- by on_entity_spawned because that event only fires at spawn time.
+local function on_game_ready()
+  if not storage.tracked_spawners then return end
+  for unit_number, data in pairs(storage.tracked_spawners) do
+    local spawner = data.spawner
+    if not (spawner and spawner.valid) then
+      storage.tracked_spawners[unit_number] = nil
+    else
+      data.positions = compute_grid_positions(spawner)
+      local cx, cy = spawner.position.x, spawner.position.y
+      local max_d2 = 0
+      for _, pos in ipairs(data.positions) do
+        local d2 = (cx - pos.x)^2 + (cy - pos.y)^2
+        if d2 > max_d2 then max_d2 = d2 end
+      end
+      data.reach_sq = max_d2 + 4
+      refresh_spawner_lock(data)
+      if data.managed and data.gaps and #data.gaps == 0 then
+        local bbox = spawner.bounding_box
+        local half = math.max(
+          (bbox.right_bottom.x - bbox.left_top.x) / 2,
+          (bbox.right_bottom.y - bbox.left_top.y) / 2
+        )
+        local radius = half + (spawner.prototype.spawning_radius or 2) + 2
+        for _, e in pairs(spawner.surface.find_entities_filtered({
+            position = spawner.position, radius = radius,
+            force = spawner.force, type = {"unit", "turret"}})) do
+          if e.valid then e.destroy() end
+        end
+      end
+    end
+  end
+end
+
+-- on_configuration_changed fires when the mod version changes (update).
+-- Game state is fully accessible here so we call on_game_ready directly.
+script.on_configuration_changed(on_game_ready)
+
+-- on_load fires on every save load but the game object is not yet
+-- accessible. Register a one-shot on_tick to run on_game_ready on the
+-- very first tick after load, when the world is fully available.
 script.on_load(function()
   if not (storage.tracked_spawners and next(storage.tracked_spawners)) then return end
   script.on_event(defines.events.on_tick, function()
-    sweep_tracked_spawners()
+    on_game_ready()
     script.on_event(defines.events.on_tick, nil)
   end)
 end)
