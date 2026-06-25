@@ -439,15 +439,71 @@ script.on_event(defines.events.on_entity_spawned, on_entity_spawned)
 
 script.on_nth_tick(SWEEP_INTERVAL, sweep_tracked_spawners)
 
--- Full recompute + state refresh + unit cleanup for every tracked spawner.
--- Recomputing positions from the current prototype fixes saves made with
--- older mod versions that stored wrong (inside-bbox) positions, which left
--- managed=false and the lockdown permanently disabled.
--- Destroying nearby enemy units and worms removes any that were alive in
--- the save around a now-fully-locked spawner - they were never intercepted
--- by on_entity_spawned because that event only fires at spawn time.
+--- Returns true if `pos` has a real pipe or a pipe ghost placed there.
+-- Used for auto-discovery: we want to detect intentional player placement,
+-- not terrain/cliffs that happen to block pipe placement.
+local function has_pipe_or_ghost(surface, pos)
+  return surface.find_entities_filtered({
+      name = BLOCKER_ENTITY, position = pos, radius = 0.5})[1] ~= nil
+    or surface.find_entities_filtered({
+      type = "entity-ghost", ghost_name = BLOCKER_ENTITY,
+      position = pos, radius = 0.5})[1] ~= nil
+end
+
+--- Kill all units and worms belonging to / near a fully-locked spawner.
+local function clear_locked_spawner(data)
+  local spawner = data.spawner
+  if not (spawner and spawner.valid) then return end
+  if not (data.managed and data.gaps and #data.gaps == 0) then return end
+  for _, unit in pairs(spawner.units or {}) do
+    if unit.valid then unit.destroy() end
+  end
+  local pos  = spawner.position
+  local surf = spawner.surface
+  local frc  = spawner.force
+  for _, e in pairs(surf.find_entities_filtered({
+      position = pos, radius = 50, force = frc, type = "unit"})) do
+    if e.valid then e.destroy() end
+  end
+  for _, e in pairs(surf.find_entities_filtered({
+      position = pos, radius = 50, force = frc, type = "turret"})) do
+    if e.valid then e.destroy() end
+  end
+end
+
+--- Runs on every game-ready event (save load or mod update).
+-- Phase 1 – auto-discover: scan every loaded spawner on every surface.
+--   If it has at least one real pipe or ghost from our pattern, add it to
+--   tracking. This handles saves made before the tool was ever used on those
+--   spawners (storage.tracked_spawners empty) as well as pipes placed
+--   manually without the tool.
+-- Phase 2 – recompute + refresh: for every tracked spawner (discovered or
+--   pre-existing), recompute grid positions from the current prototype so
+--   stale data from old mod versions is discarded, then refresh managed/gaps.
+-- Phase 3 – clean up: for each fully-locked spawner, destroy all owned
+--   units wherever they have roamed and worms within 50 tiles.
 local function on_game_ready()
-  if not storage.tracked_spawners then return end
+  storage.tracked_spawners = storage.tracked_spawners or {}
+
+  -- Phase 1: auto-discover
+  for _, surface in pairs(game.surfaces) do
+    for _, spawner in pairs(surface.find_entities_filtered({type = "unit-spawner"})) do
+      if spawner.valid and not storage.tracked_spawners[spawner.unit_number] then
+        local positions = compute_grid_positions(spawner)
+        for _, pos in ipairs(positions) do
+          if has_pipe_or_ghost(surface, pos) then
+            storage.tracked_spawners[spawner.unit_number] = {
+              spawner    = spawner,
+              positions  = positions,
+            }
+            break
+          end
+        end
+      end
+    end
+  end
+
+  -- Phase 2 + 3: recompute, refresh, clear
   for unit_number, data in pairs(storage.tracked_spawners) do
     local spawner = data.spawner
     if not (spawner and spawner.valid) then
@@ -462,31 +518,7 @@ local function on_game_ready()
       end
       data.reach_sq = max_d2 + 4
       refresh_spawner_lock(data)
-      if data.managed and data.gaps and #data.gaps == 0 then
-        -- Kill every unit this spawner owns, wherever it has roamed.
-        -- spawner.units tracks ownership regardless of position.
-        for _, unit in pairs(spawner.units or {}) do
-          if unit.valid then unit.destroy() end
-        end
-        -- Also kill by radius: units that left spawner ownership (joined
-        -- attack groups, etc.) no longer appear in spawner.units. 50 tiles
-        -- covers typical biter patrol range. Worms (turrets on enemy force)
-        -- are never in spawner.units so this is the only way to catch them.
-        -- Two separate calls: Factorio's type filter is safest as a string.
-        local pos = spawner.position
-        local surf = spawner.surface
-        local force = spawner.force
-        for _, e in pairs(surf.find_entities_filtered({
-            position = pos, radius = 50,
-            force = force, type = "unit"})) do
-          if e.valid then e.destroy() end
-        end
-        for _, e in pairs(surf.find_entities_filtered({
-            position = pos, radius = 50,
-            force = force, type = "turret"})) do
-          if e.valid then e.destroy() end
-        end
-      end
+      clear_locked_spawner(data)
     end
   end
 end
@@ -498,8 +530,9 @@ script.on_configuration_changed(on_game_ready)
 -- on_load fires on every save load but the game object is not yet
 -- accessible. Register a one-shot on_tick to run on_game_ready on the
 -- very first tick after load, when the world is fully available.
+-- No early-return guard here: Phase 1 handles the case where
+-- tracked_spawners is empty by scanning all surfaces for pattern pipes.
 script.on_load(function()
-  if not (storage.tracked_spawners and next(storage.tracked_spawners)) then return end
   script.on_event(defines.events.on_tick, function()
     on_game_ready()
     script.on_event(defines.events.on_tick, nil)
