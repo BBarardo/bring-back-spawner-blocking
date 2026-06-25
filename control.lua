@@ -463,6 +463,15 @@ local function on_game_ready()
       data.reach_sq = max_d2 + 4
       refresh_spawner_lock(data)
       if data.managed and data.gaps and #data.gaps == 0 then
+        -- Kill every unit this spawner owns, wherever it has roamed.
+        -- spawner.units tracks ownership regardless of position, so we
+        -- catch biters that have already walked away from the spawner area.
+        for _, unit in pairs(spawner.units or {}) do
+          if unit.valid then unit.destroy() end
+        end
+        -- Worms (turrets) are not tracked in spawner.units; search by
+        -- radius instead. Split from units to avoid any API issues with
+        -- passing an array to the type field.
         local bbox = spawner.bounding_box
         local half = math.max(
           (bbox.right_bottom.x - bbox.left_top.x) / 2,
@@ -471,7 +480,7 @@ local function on_game_ready()
         local radius = half + (spawner.prototype.spawning_radius or 2) + 2
         for _, e in pairs(spawner.surface.find_entities_filtered({
             position = spawner.position, radius = radius,
-            force = spawner.force, type = {"unit", "turret"}})) do
+            force = spawner.force, type = "turret"})) do
           if e.valid then e.destroy() end
         end
       end
