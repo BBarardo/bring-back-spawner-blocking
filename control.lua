@@ -438,3 +438,15 @@ script.on_event(defines.events.script_raised_destroy, on_entity_removed)
 script.on_event(defines.events.on_entity_spawned, on_entity_spawned)
 
 script.on_nth_tick(SWEEP_INTERVAL, sweep_tracked_spawners)
+
+-- On save load the periodic sweep hasn't run yet, so tracked spawners
+-- still have stale gap/managed state from before the save. Register a
+-- one-shot on_tick that refreshes everything on the very first tick after
+-- load, then removes itself.
+script.on_load(function()
+  if not (storage.tracked_spawners and next(storage.tracked_spawners)) then return end
+  script.on_event(defines.events.on_tick, function()
+    sweep_tracked_spawners()
+    script.on_event(defines.events.on_tick, nil)
+  end)
+end)
