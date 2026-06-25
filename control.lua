@@ -25,24 +25,28 @@
 -- positions enough that units could squeeze through walls that used to be
 -- airtight, even with spawning_radius/spawning_spacing tuned back up. To
 -- get back to "fully walled in means fully silent", once a spawner has at
--- least one real pipe built from its pattern, this mod takes over and
--- disables the spawner's own spawning directly (spawner.active = false)
--- instead of trusting the engine's own collision check. As long as every
--- position in the pattern has a real pipe, nothing spawns. If a position
--- is missing or gets destroyed, units leak out specifically through that
--- gap, on roughly the spawner's normal spawn timer - a hole in the wall
--- lets things through right there, not everywhere.
+-- least one real pipe built from its pattern, this mod intercepts
+-- on_entity_spawned and immediately destroys any unit produced by a fully
+-- walled spawner (every pattern position occupied). If the wall has gaps,
+-- spawned units are left alive - a hole in the wall lets things through.
 
 local TOOL_NAME = "spawner-blocker-planner"
 local BLOCKER_ENTITY = "pipe"
 local GUI_FRAME_NAME = "spawner-blocker-gui"
 local CHECKBOX_NAME = "spawner-blocker-force-build-checkbox"
-local LEAK_CHECK_INTERVAL = 30
 local SWEEP_INTERVAL = 300
+
+-- How many rings of pipe positions to place OUTSIDE each spawner's bbox.
+-- Both Nauvis spawner types are 5×5 but biters have a larger effective
+-- spawn zone and need one extra ring.  Unknown spawner types fall back to 2.
+local OUTSIDE_RINGS = {
+  ["biter-spawner"]   = 3,
+  ["spitter-spawner"] = 2,
+}
 
 local function get_force_build(player_index)
   local value = storage.force_build and storage.force_build[player_index]
-  if value == nil then return true end
+  if value == nil then return false end
   return value
 end
 
@@ -67,11 +71,12 @@ local function force_clear(force, player, surface, pos)
   local blockers = surface.find_entities_filtered({position = pos, radius = 0.4})
   for _, e in pairs(blockers) do
     if e.valid and e.type ~= "entity-ghost" and e.type ~= "unit-spawner"
-       and e.type ~= "resource" and e.type ~= "character" and e.type ~= "cliff" then
+       and e.type ~= "resource" and e.type ~= "character" and e.type ~= "cliff"
+       and e.name ~= BLOCKER_ENTITY then
       if not (e.to_be_deconstructed and e.to_be_deconstructed()) then
         pcall(function() e.order_deconstruction(force, player) end)
       end
-      if e.to_be_deconstructed and e.to_be_deconstructed() then
+      if e.valid and e.to_be_deconstructed and e.to_be_deconstructed() then
         cleared_something = true
       end
     end
@@ -89,10 +94,21 @@ local function compute_grid_positions(spawner)
   local radius = spawner.prototype.spawning_radius or 4
   local spacing = spawner.prototype.spawning_spacing or 3
   if spacing < 1 then spacing = 1 end
-  local rings = math.max(1, math.ceil(radius / spacing))
 
-  local base_x = math.floor(spawner.position.x) + 0.5
-  local base_y = math.floor(spawner.position.y) + 0.5
+  -- Use the actual bbox centre so the grid aligns with the spawner's
+  -- physical footprint regardless of how Factorio rounds entity positions.
+  local base_x = (bbox.left_top.x + bbox.right_bottom.x) / 2
+  local base_y = (bbox.left_top.y + bbox.right_bottom.y) / 2
+
+  -- rings_inside: how many grid steps fit inside the spawner's bbox (these
+  -- positions are always excluded because a pipe can't go inside the spawner).
+  -- outside: how many rings to place OUTSIDE the bbox; varies by spawner type
+  -- so that the pattern matches the effective spawn zone without excess.
+  local half_w = (bbox.right_bottom.x - bbox.left_top.x) / 2
+  local half_h = (bbox.right_bottom.y - bbox.left_top.y) / 2
+  local rings_inside = math.floor(math.max(half_w, half_h) / spacing)
+  local outside = OUTSIDE_RINGS[spawner.name] or math.max(2, math.ceil(radius / spacing))
+  local rings = rings_inside + outside
 
   local positions = {}
   for i = -rings, rings do
@@ -117,40 +133,15 @@ local function position_is_held(surface, pos, force)
   return not surface.can_place_entity({name = BLOCKER_ENTITY, position = pos, force = force})
 end
 
---- Picks which unit a spawner's lockdown leak should spawn: always the
--- weakest unit in the spawner's own result_units (falls back to
--- small-biter/small-spitter by name). A broken wall lets the small stuff
--- trickle through - it doesn't hand the spawner a free behemoth.
-local function pick_leak_unit(spawner)
-  local result_units = spawner.prototype.result_units
-  if result_units and result_units[1] and result_units[1][1] then
-    return result_units[1][1]
-  end
-  if spawner.name == "spitter-spawner" then return "small-spitter" end
-  return "small-biter"
-end
-
---- Roughly the spawner's own spawning_cooldown, scaled by the force's
--- current evolution factor (faster as evolution climbs, same idea as the
--- vanilla prototype). This is an approximation of the engine's internal
--- scheduling, not a faithful reimplementation of it.
-local function leak_cooldown_ticks(spawner)
-  local cd = spawner.prototype.spawning_cooldown or {360, 150}
-  local evo = 0
-  pcall(function() evo = spawner.force.get_evolution_factor(spawner.surface) end)
-  local ticks = cd[1] + (cd[2] - cd[1]) * evo
-  return math.max(30, math.floor(ticks))
-end
-
 --- Re-evaluates one tracked spawner: recomputes which of its pattern
--- positions are actually held, and sets spawner.active accordingly.
+-- positions are actually held.
 --
 -- Management only engages once at least one position is held by a real
 -- pipe - a nest the player selected with the tool but never actually
 -- built anything around is left completely untouched, vanilla behaviour
--- and all. Once management is engaged, the spawner's own spawning is
--- always switched off (spawner.active = false); if there are still gaps,
--- leak_tracked_spawners() lets units through specifically there.
+-- and all. Once management is engaged, on_entity_spawned destroys any
+-- unit the spawner produces when there are no gaps; if gaps remain the
+-- units are left alive.
 -- @return false if the spawner is no longer valid and should be dropped
 local function refresh_spawner_lock(data)
   local spawner = data.spawner
@@ -169,14 +160,6 @@ local function refresh_spawner_lock(data)
   data.gaps = gaps
   data.managed = held > 0
 
-  if data.managed then
-    spawner.active = false
-  elseif spawner.active == false then
-    -- Never actually built anything (or tore it all back down) - hand
-    -- spawning back to the engine instead of leaving it stuck off.
-    spawner.active = true
-  end
-
   return true
 end
 
@@ -184,10 +167,20 @@ local function register_tracked_spawner(spawner, positions)
   storage.tracked_spawners = storage.tracked_spawners or {}
   local data = storage.tracked_spawners[spawner.unit_number] or {
     spawner = spawner,
-    next_leak_tick = 0
   }
   data.spawner = spawner
   data.positions = positions
+  -- Pre-compute the squared reach so refresh_nearby_tracked_spawners can
+  -- compare distances without a sqrt and without under-shooting for large
+  -- patterns (e.g. biter ring 5 is at distance 5 from centre; the old
+  -- spawning_radius+2 fallback of 4 would have missed it).
+  local cx, cy = spawner.position.x, spawner.position.y
+  local max_d2 = 0
+  for _, pos in ipairs(positions) do
+    local d2 = (cx - pos.x)^2 + (cy - pos.y)^2
+    if d2 > max_d2 then max_d2 = d2 end
+  end
+  data.reach_sq = max_d2 + 4  -- +4 ≈ 2-tile buffer
   storage.tracked_spawners[spawner.unit_number] = data
   refresh_spawner_lock(data)
 end
@@ -202,13 +195,27 @@ local function refresh_nearby_tracked_spawners(surface, pos)
     if data.spawner and data.spawner.valid and data.spawner.surface == surface then
       local dx = data.spawner.position.x - pos.x
       local dy = data.spawner.position.y - pos.y
-      local reach = (data.spawner.prototype.spawning_radius or 4) + 2
-      if dx * dx + dy * dy <= reach * reach then
+      if dx * dx + dy * dy <= (data.reach_sq or 36) then
         refresh_spawner_lock(data)
       end
     else
       storage.tracked_spawners[unit_number] = nil
     end
+  end
+end
+
+--- When a managed spawner produces a unit and every wall position is held,
+-- destroy the unit immediately - the wall is airtight so nothing gets out.
+-- If the wall has gaps, the unit lives; the gap is the leak.
+local function on_entity_spawned(event)
+  if not storage.tracked_spawners then return end
+  local spawner = event.spawner
+  if not (spawner and spawner.valid) then return end
+  local data = storage.tracked_spawners[spawner.unit_number]
+  if not (data and data.managed) then return end
+  if data.gaps and #data.gaps == 0 then
+    local entity = event.entity
+    if entity and entity.valid then entity.destroy() end
   end
 end
 
@@ -240,6 +247,15 @@ local function block_spawner(player, force, spawner, undo_index, force_build)
       if force_clear(force, player, surface, pos) then
         should_place = true
       end
+    end
+
+    -- Don't stack a second ghost on top of an existing one. Ghosts have no
+    -- collision so can_place_entity returns true even when one is already
+    -- there; we need an explicit check.
+    if should_place and surface.find_entities_filtered({
+        type = "entity-ghost", ghost_name = BLOCKER_ENTITY,
+        position = pos, radius = 0.5})[1] then
+      should_place = false
     end
 
     if should_place then
@@ -392,32 +408,6 @@ local function on_entity_removed(event)
   refresh_nearby_tracked_spawners(entity.surface, entity.position)
 end
 
---- Periodically lets a managed spawner's blocked units "leak" through
--- whatever gaps its pattern currently has, on roughly its own spawn
--- timer. A spawner with zero gaps never reaches the spawn call below -
--- it's fully locked down with nothing to leak.
-local function leak_tracked_spawners(event)
-  if not storage.tracked_spawners then return end
-
-  for unit_number, data in pairs(storage.tracked_spawners) do
-    local spawner = data.spawner
-    if not (spawner and spawner.valid) then
-      storage.tracked_spawners[unit_number] = nil
-    elseif data.managed and data.gaps and #data.gaps > 0 then
-      if event.tick >= (data.next_leak_tick or 0) then
-        local pos = data.gaps[math.random(#data.gaps)]
-        local unit_name = pick_leak_unit(spawner)
-        pcall(function()
-          if spawner.surface.can_place_entity({name = unit_name, position = pos, force = spawner.force}) then
-            spawner.surface.create_entity({name = unit_name, position = pos, force = spawner.force})
-          end
-        end)
-        data.next_leak_tick = event.tick + leak_cooldown_ticks(spawner)
-      end
-    end
-  end
-end
-
 --- Safety-net sweep, in case some build/mine event was missed (mods
 -- removing entities silently, biters chewing through a pipe, etc.).
 local function sweep_tracked_spawners()
@@ -445,5 +435,6 @@ script.on_event(defines.events.on_robot_mined_entity, on_entity_removed)
 script.on_event(defines.events.on_entity_died, on_entity_removed)
 script.on_event(defines.events.script_raised_destroy, on_entity_removed)
 
-script.on_nth_tick(LEAK_CHECK_INTERVAL, leak_tracked_spawners)
+script.on_event(defines.events.on_entity_spawned, on_entity_spawned)
+
 script.on_nth_tick(SWEEP_INTERVAL, sweep_tracked_spawners)
