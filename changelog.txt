@@ -1,0 +1,27 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.8.0
+Date: 26. 06. 2026
+  Bugfixes:
+    - Fixed crash "LuaEntity::active is read only" when using the selection tool on Factorio 2.1.8, which removed write access to entity.active for unit-spawners.
+    - Fixed the lockdown never engaging: grid positions were generated inside the spawner's 5x5 bounding box and immediately filtered out, leaving an empty position list and managed=false permanently.
+    - Fixed force build incorrectly marking existing pipes for deconstruction when pipes were already placed at pattern positions.
+    - Fixed a second crash in force build when an entity became invalid after order_deconstruction was called.
+    - Fixed ghost stacking: using the tool multiple times on the same spawner placed new ghosts on top of existing ones (ghosts have no collision so can_place_entity returned true regardless).
+  Changes:
+    - Lockdown mechanism rewritten: the mod now intercepts on_entity_spawned and silently destroys any unit produced by a fully-walled spawner, instead of disabling the spawner via entity.active.
+    - Biter spawners now receive 3 rings of pipe ghosts and spitter spawners 2 rings, matching the effective spawn zone of each type (both are 5x5 tiles but biters need wider coverage).
+    - On save load, the mod auto-discovers any spawner that already has the pipe pattern built around it, even if the selection tool was never used in that session. Only real pipes or pipe ghosts count; terrain obstacles are ignored.
+    - On save load, units owned by fully-locked spawners are destroyed wherever they have roamed (via spawner.units), plus a 50-tile radius sweep for units and worms that left spawner ownership.
+    - Force build now defaults to off.
+---------------------------------------------------------------------------------------------------
+Version: 0.7.0
+Date: 25. 06. 2026
+  Features:
+    - Lockdown: once a spawner has at least one real pipe from the pattern built around it, the mod disables the spawner directly (entity.active = false). A fully-walled spawner goes completely silent; gaps in the wall let a weak unit leak through on roughly the spawner's normal timer.
+    - Selection tool (ALT+S or shortcut bar) places a sparse ring of pipe ghosts around each enemy spawner in the dragged area, spaced spawning_spacing tiles apart out to spawning_radius.
+    - Force build mode (toggle in the left panel): marks anything in the way for deconstruction and places the pipe ghost anyway, like a forced blueprint paste. Skips tiles blocked by terrain alone (water, cliffs).
+    - Shift-drag (reverse select) removes pipe ghosts placed by this tool.
+    - Ghost placement is registered in the player's undo queue; Ctrl+Z undoes an entire drag in one action.
+    - Spawning radius and spacing tuned down from vanilla values so the classic one-pipe-skip-skip pattern becomes viable again without needing solid walls.
+    - Removed the 2.1 acid cloud on spawner destruction.
+---------------------------------------------------------------------------------------------------
