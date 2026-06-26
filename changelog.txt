@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.8.1
+Date: 26. 06. 2026
+  Bugfixes:
+    - Fixed the spawner-blocker-planner item appearing in the player inventory and in the production menu; added the "only-in-cursor" flag so the tool behaves like vanilla planners (deconstruction planner, etc.) and exists only while held in the cursor.
+    - On mod update, any planner items already sitting in player inventories or cursor stacks are automatically removed (one-time migration).
+---------------------------------------------------------------------------------------------------
 Version: 0.8.0
 Date: 26. 06. 2026
   Bugfixes:

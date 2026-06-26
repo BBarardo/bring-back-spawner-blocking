@@ -14,7 +14,7 @@ data:extend({
     name = "spawner-blocker-planner",
     icon = "__base__/graphics/icons/pipe.png",
     icon_size = 64,
-    flags = {"spawnable", "always-show", "excluded-from-character-lift-weight", "not-stackable"},
+    flags = {"spawnable", "only-in-cursor", "not-stackable"},
     subgroup = "tool",
     order = "z[spawner-blocker-planner]",
     stack_size = 1,

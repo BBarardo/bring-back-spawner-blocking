@@ -523,9 +523,29 @@ local function on_game_ready()
   end
 end
 
+--- One-time migration: remove any spawner-blocker-planner items that were
+-- incorrectly stored in player inventories before the only-in-cursor fix.
+local function purge_planner_from_inventories()
+  for _, player in pairs(game.players) do
+    local inv = player.get_inventory(defines.inventory.character_main)
+    if inv then
+      local count = inv.get_item_count(TOOL_NAME)
+      if count > 0 then inv.remove({name = TOOL_NAME, count = count}) end
+    end
+    if player.cursor_stack and player.cursor_stack.valid_for_read
+       and player.cursor_stack.name == TOOL_NAME then
+      player.cursor_stack.clear()
+    end
+  end
+end
+
 -- on_configuration_changed fires when the mod version changes (update).
 -- Game state is fully accessible here so we call on_game_ready directly.
-script.on_configuration_changed(on_game_ready)
+-- Also purge any planner items left in inventories from before the fix.
+script.on_configuration_changed(function(data)
+  on_game_ready(data)
+  purge_planner_from_inventories()
+end)
 
 -- on_load fires on every save load but the game object is not yet
 -- accessible. Register a one-shot on_tick to run on_game_ready on the
