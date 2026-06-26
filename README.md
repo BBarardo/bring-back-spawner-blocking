@@ -1,6 +1,6 @@
 # Bring Back Spawner Blocking
 
-![Bring Back Spawner Blocking](bring-back-spawner-blocking.png)
+![Bring Back Spawner Blocking](thumbnail.png)
 
 A Factorio 2.1 mod that brings back the classic "wall the nest in with
 pipes" strategy: surround a biter/spitter spawner tightly enough and it
